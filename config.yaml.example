@@ -1,0 +1,104 @@
+# VRP strategy configuration.
+# Copy to config.yaml and edit. Anything omitted falls back to the defaults
+# defined in vrp/config.py.
+
+universe:
+  tickers: ["SPY", "IWM", "QQQ"]
+  # Per-ticker dividend yields (annualised, decimal).
+  dividend_yields:
+    SPY: 0.013
+    IWM: 0.014
+    QQQ: 0.006
+  # Per-ticker VIX scaling: ATM IV for the backtest BSM provider is
+  # approximated as VIX * scale (e.g. IWM tends to be ~1.15x SPX vol).
+  vix_scale:
+    SPY: 1.00
+    IWM: 1.15
+    QQQ: 1.10
+
+pricing:
+  risk_free_rate: 0.043          # held flat across backtest period
+  # Parametric skew for the BSM provider (linear in delta).
+  # IV(d) = atm * (1 + skew_slope * (0.5 - d)) where d in (0, 1).
+  bsm_skew_slope: 0.80
+
+forecasting:
+  har_window_days: 252
+  refit_every_days: 5
+  yang_zhang_window: 22
+
+entry:
+  min_dte: 30
+  max_dte: 45
+  # Regime-conditional short-delta targets [low, high] by VIX 252d percentile.
+  delta_target_low_vol:   [0.20, 0.25]   # VIX < 25th pct
+  delta_target_mid_vol:   [0.15, 0.20]   # 25-75th
+  delta_target_high_vol:  [0.10, 0.15]   # > 75th
+  min_credit_pct_of_width: 0.20          # hard floor
+  target_credit_pct_of_width: 0.33       # aim for >= 33% of width
+  vrp_lookback_days: 90
+  vrp_percentile_min: 0.30
+  skew_lookback_days: 252
+  skew_high_percentile: 0.90             # top 10% of skew => half size
+  skew_size_reduction: 0.50
+  min_days_between_entries_same_ticker: 7
+  max_entries_per_day: 1
+
+exit:
+  profit_target_pct: 0.50
+  stop_loss_multiple: 2.0
+  gamma_stop_multiple: 3.0
+  skew_reversal_sigmas: 2.0
+  hard_time_stop_dte: 5
+
+sizing:
+  starting_equity: 100000.0
+  max_loss_per_trade_pct: 0.015
+  portfolio_var_cap_pct: 0.05
+  var_confidence: 0.99
+  var_lookback_days: 252
+  correlation_lookback_days: 60
+  net_short_vega_cap_pct: 0.005      # per vol point
+  net_short_gamma_cap_pct: 0.001     # per $1 underlying move
+  net_delta_cap_pct: 0.05
+  round_contracts: floor             # floor | nearest
+  skip_if_zero: true
+
+hedging:
+  enabled: true
+  ticker: "SPY"
+  otm_pct: 0.06
+  min_dte: 60
+  max_dte: 90
+  roll_dte: 30
+  stress_spx_drop: 0.08
+  stress_vix_level: 50.0
+  stress_skew_percentile: 0.99
+  hedge_coverage_target: 0.50
+  annual_premium_budget_pct: 0.04
+
+backtest:
+  commission_per_contract: 0.65
+  entry_slippage_pct_of_spread: 0.50
+  exit_slippage_pct_of_spread: 0.50
+  hedge_slippage_pct_of_spread: 0.60
+  results_dir: "backtest_results"
+
+data:
+  cache_dir: "data_cache"
+  surface_cache_dir: "surface_cache"
+  yfinance_retries: 3
+  yfinance_backoff_seconds: 2.0
+  history_days_for_har: 400          # enough for 252d rolling + warmup
+
+persistence:
+  db_path: "vrp.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs"
+  log_file: "vrp.log"
+
+alerts:
+  discord_webhook_url: null          # set to enable Discord; null => no-op
+  discord_username: "VRP"

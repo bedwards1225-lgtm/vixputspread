@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest tests/ --tb=short)",
+      "Bash(vrp --help)",
+      "Bash(vrp positions *)",
+      "Bash(vrp stats *)",
+      "Bash(ls -la ~/.Trash/ 2>/dev/null | grep -i \"vrp\\\\|backtest\" | head -10)"
+    ]
+  }
+}
