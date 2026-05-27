@@ -184,20 +184,30 @@ class BlackScholesProvider(OptionsDataProvider):
     ) -> float:
         """Compute IV at ``strike`` from ATM IV via a linear-in-delta skew.
 
-        IV(d) = atm * (1 + slope * (0.5 - d))    for puts (d in [-1, 0])
-              = atm * (1 + slope * (d - 0.5))    for calls (d in [0, 1])
+        Index-equity smile shape:
+          - OTM puts  (delta close to 0):   IV > ATM    (left-tail premium)
+          - ATM       (|delta| ~ 0.5):      IV = ATM
+          - ITM puts  (delta close to -1):  IV < ATM
 
-        With slope > 0 this gives OTM puts (small |d|) the highest IV, ATM at
-        atm_iv, and OTM calls slightly below atm_iv.
+        Linear-in-delta parameterisation:
+          puts:  IV = ATM * (1 + slope * (d + 0.5))    d in [-1, 0]
+          calls: IV = ATM * (1 - slope * (d - 0.5))    d in [0, 1]
+
+        With slope > 0 this gives OTM puts the highest IV (correct for SPX
+        smile) and OTM calls slightly below ATM.
         """
         d_atm = float(
             bsm.delta(spot, strike, T, self.rate, q, atm_iv, option_type)
         )
         if option_type == "put":
-            adj = self.skew_slope * (0.5 + d_atm)   # d_atm <= 0
+            # d_atm in [-1, 0]. For OTM puts d_atm close to 0 -> (d+0.5) close to +0.5
+            # -> IV pumped up. For ITM puts d_atm close to -1 -> IV pushed down.
+            adj = self.skew_slope * (d_atm + 0.5)
         else:
-            adj = self.skew_slope * (d_atm - 0.5)
-        iv = atm_iv * (1.0 - adj)
+            # d_atm in [0, 1]. For OTM calls d_atm close to 0 -> (d-0.5) close to -0.5
+            # -> IV pushed down (mild). For ITM calls d_atm close to 1 -> IV pumped up.
+            adj = -self.skew_slope * (d_atm - 0.5)
+        iv = atm_iv * (1.0 + adj)
         return float(np.clip(iv, 0.05, 2.0))
 
 
