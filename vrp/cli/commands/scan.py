@@ -46,6 +46,7 @@ def run(args, cfg: Config) -> int:
 
     vix_series = live.get_history("^VIX", days=cfg.entry.skew_lookback_days + 30)["Close"]
 
+    stale_tickers: list[str] = []
     n_accepted = 0
     for ticker in tickers:
         try:
@@ -59,6 +60,9 @@ def run(args, cfg: Config) -> int:
             )
         except live.LiveDataError as exc:
             logger.warning("skipping %s: %s", ticker, exc)
+            continue
+        if live.looks_like_stale_chain(chain.chain):
+            stale_tickers.append(ticker)
             continue
         snap = ChainSnapshot(
             ticker=ticker, as_of=chain.as_of, spot=chain.spot, chain=chain.chain
@@ -107,4 +111,13 @@ def run(args, cfg: Config) -> int:
         )
 
     print(f"\n{n_accepted} accepted out of {len(tickers)} scanned.")
+    if stale_tickers:
+        print()
+        print("=" * 72)
+        print("WARNING: yfinance returned stale (bucketed) IV data for: "
+              f"{', '.join(stale_tickers)}")
+        print("This usually means the US options market is closed (weekends,")
+        print("after 4pm ET, holidays). Live signals require market-hours data.")
+        print("Run again between 9:30am-4:00pm ET on a US trading day.")
+        print("=" * 72)
     return 0

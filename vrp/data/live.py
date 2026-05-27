@@ -74,6 +74,10 @@ def get_history(
         df = yf.Ticker(ticker).history(period=f"{days}d", auto_adjust=False)
         if df.empty:
             raise ConnectionError(f"empty history for {ticker}")
+        # yfinance returns a tz-aware index ("America/New_York"). Strip the
+        # timezone so the rest of the codebase can use tz-naive timestamps.
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
         return df
 
     return _retry(_fetch, retries, backoff)
@@ -89,6 +93,25 @@ def get_vix(*, retries: int = 3, backoff: float = 2.0) -> float:
     """Latest VIX close (^VIX)."""
     df = get_history("^VIX", days=5, retries=retries, backoff=backoff)
     return float(df["Close"].iloc[-1])
+
+
+def looks_like_stale_chain(chain: pd.DataFrame) -> bool:
+    """Detect yfinance's after-hours "bucketed IV" pattern.
+
+    yfinance returns IV values like 0.0625, 0.125, 0.25, 0.50 — exact
+    fractions of one — when the underlying market is closed and it can't
+    compute live IVs. If a high fraction of IVs cluster on these buckets,
+    the chain is essentially useless for live signal generation.
+
+    Returns:
+        True if the chain appears to be after-hours placeholder data.
+    """
+    if chain.empty:
+        return True
+    buckets = {0.0625, 0.125, 0.25, 0.50, 1.0}
+    rounded = chain["iv"].round(3)
+    matches = rounded.apply(lambda v: any(abs(v - b) < 0.001 for b in buckets))
+    return matches.mean() > 0.5
 
 
 def get_chain(
@@ -164,17 +187,37 @@ def get_chain(
 
 
 def _normalise_chain(raw: pd.DataFrame) -> pd.DataFrame:
-    """Flatten a yfinance chain into a uniform schema."""
+    """Flatten a yfinance chain into a uniform schema.
+
+    yfinance behaviour varies depending on whether the market is open:
+      - During session: ``bid`` and ``ask`` are populated, ``impliedVolatility``
+        is computed at last price (often stale).
+      - After session: ``bid`` and ``ask`` are commonly zero; only
+        ``lastPrice`` and ``impliedVolatility`` are populated.
+
+    We accept rows that satisfy ALL of:
+      - ``impliedVolatility`` in [0.05, 1.50] (anything else is a placeholder
+        like 1e-5 or a clearly broken outlier).
+      - A non-zero price source (mid if bid/ask are real, else lastPrice).
+      - For rows with a real two-sided market, sanity-check the spread isn't
+        wider than the mid (a sign of stale quotes).
+    """
     out = pd.DataFrame()
     out["option_type"] = raw["option_type"]
     out["strike"] = raw["strike"].astype(float)
     out["expiry"] = pd.to_datetime(raw["expiry"]).dt.date
     out["bid"] = raw.get("bid", 0.0).astype(float)
     out["ask"] = raw.get("ask", 0.0).astype(float)
-    out["mid"] = (out["bid"] + out["ask"]) / 2.0
-    out["mid"] = out["mid"].where(out["mid"] > 0, raw.get("lastPrice", 0.0).astype(float))
+    last = raw.get("lastPrice", 0.0).astype(float)
+    real_mid = (out["bid"] + out["ask"]) / 2.0
+    has_two_sided = (out["bid"] > 0) & (out["ask"] > 0)
+    out["mid"] = real_mid.where(has_two_sided, last)
     out["iv"] = raw.get("impliedVolatility", 0.0).astype(float)
     out["volume"] = raw.get("volume", 0).fillna(0).astype(int)
     out["oi"] = raw.get("openInterest", 0).fillna(0).astype(int)
-    out = out[(out["iv"] > 0.0) & (out["iv"] < 5.0)]
+    # Sane IV band (drops the 1e-5 placeholders) + non-zero price.
+    keep = (out["iv"] >= 0.05) & (out["iv"] <= 1.50) & (out["mid"] > 0)
+    # When bid/ask are real, also require the spread not to exceed the mid.
+    sane_spread = ~has_two_sided | ((out["ask"] - out["bid"]) < out["mid"])
+    out = out[keep & sane_spread]
     return out.reset_index(drop=True)

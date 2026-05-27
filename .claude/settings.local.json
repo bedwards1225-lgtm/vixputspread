@@ -5,7 +5,10 @@
       "Bash(vrp --help)",
       "Bash(vrp positions *)",
       "Bash(vrp stats *)",
-      "Bash(ls -la ~/.Trash/ 2>/dev/null | grep -i \"vrp\\\\|backtest\" | head -10)"
+      "Bash(ls -la ~/.Trash/ 2>/dev/null | grep -i \"vrp\\\\|backtest\" | head -10)",
+      "Bash(vrp scan *)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m pytest tests/ -q)"
     ]
   }
 }
